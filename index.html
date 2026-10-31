@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tunnel Slot Planner</title>
+<meta name="description" content="Plan 15-minute wind tunnel sessions for teams, with a per-flyer rest rule.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tunnel Slots">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b2a36">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="top" id="top">
+  <div class="top-row">
+    <h1>Tunnel <span>Slot</span> Planner</h1>
+    <span class="saved" id="savedFlag" aria-live="polite"></span>
+  </div>
+  <div class="event-row">
+    <label class="vh" for="eventSel">Event</label>
+    <select id="eventSel"></select>
+    <button class="ev-btn" id="eventMenuBtn" type="button" aria-haspopup="dialog">Event…</button>
+  </div>
+</header>
+
+<main class="app" id="app">
+  <!-- Teams -->
+  <section class="pane" id="pane-teams" aria-label="Teams">
+    <div class="pane-head">
+      <h2>Teams</h2>
+      <div class="count-row"><label for="teamCount">Number of teams</label><select id="teamCount"></select></div>
+    </div>
+    <div class="pane-body">
+      <div class="teams" id="teams"></div>
+      <p class="hint">Flyers are matched by name across teams (case ignored), so a person in two teams is rested correctly. Leave unused flyer fields empty.</p>
+    </div>
+  </section>
+
+  <!-- Availability -->
+  <section class="pane avail" id="pane-avail" aria-label="Availability">
+    <div class="pane-head">
+      <h2>Availability</h2>
+      <button class="ghost" id="clearAvail" type="button">Clear all</button>
+      <div class="sub">Tap a slot to mark it unavailable. Tap a time to toggle both slots.</div>
+    </div>
+    <div class="pane-body">
+      <table><thead><tr><th>Time</th><th>Slot A</th><th>Slot B</th></tr></thead><tbody id="availBody"></tbody></table>
+    </div>
+  </section>
+
+  <!-- Plan -->
+  <section class="pane out" id="pane-plan" aria-label="Plan">
+    <div class="pane-head">
+      <h2>Plan</h2>
+      <div class="actions">
+        <button class="share-btn" id="shareImg" type="button" hidden>Share picture</button>
+        <button class="share-btn" id="copyImg" type="button">Copy picture</button>
+        <button class="primary" id="allocate" type="button">Allocate</button>
+      </div>
+      <div class="sub">Tap an open slot to fix a team there, or set it back to Auto.</div>
+    </div>
+    <div class="pane-body">
+      <div class="share-status" id="shareStatus" role="status"></div>
+      <div class="share-preview" id="sharePreview" hidden>
+        <p>Press and hold the picture to copy or save it.</p>
+        <img id="previewImg" alt="Plan as a picture">
+      </div>
+      <table><thead><tr><th>Time</th><th>Slot A</th><th>Slot B</th></tr></thead><tbody id="outBody"></tbody></table>
+      <div class="summary" id="summary"></div>
+      <div class="plan-foot">
+        <label for="imgTitle">Picture title<input type="text" id="imgTitle" maxlength="60" placeholder="Uses the event name"></label>
+        <button class="ghost" id="clearPins" type="button">Clear fixes</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="Views">
+  <button type="button" data-tab="teams" id="tab-teams">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><circle cx="16.5" cy="9" r="2.6"/><path d="M2.5 19c.6-3.4 2.9-5.4 5.5-5.4s4.9 2 5.5 5.4M13.6 14.4c.9-.6 1.9-.9 2.9-.9 2.2 0 4.1 1.7 4.6 4.6"/></svg>
+    <span>Teams</span>
+  </button>
+  <button type="button" data-tab="avail" id="tab-avail">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="16" rx="2.5"/><path d="M3.5 9.5h17M9 4.5v16M15 4.5v16M7.5 2.5v3M16.5 2.5v3"/></svg>
+    <span>Availability</span>
+  </button>
+  <button type="button" data-tab="plan" id="tab-plan">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4M4 12h4M4 19h4"/><rect x="11" y="3.5" width="9.5" height="3.5" rx="1.2"/><rect x="11" y="10.2" width="6.5" height="3.5" rx="1.2"/><rect x="11" y="17" width="8" height="3.5" rx="1.2"/></svg>
+    <span>Plan</span>
+  </button>
+</nav>
+
+<!-- Event sheet -->
+<div class="sheet-backdrop" id="sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h3 id="sheetTitle">Event</h3>
+
+    <div class="sheet-view" id="view-menu">
+      <div class="menu">
+        <button type="button" data-act="new"><b>New event</b><span>Empty teams, all slots open</span></button>
+        <button type="button" data-act="duplicate"><b>Duplicate this event</b><span>Copy teams and slots to a new date</span></button>
+        <button type="button" data-act="rename"><b>Rename or change date</b></button>
+        <button type="button" data-act="export-one"><b>Export this event</b><span>Save a backup file or send it</span></button>
+        <button type="button" data-act="export-all"><b>Export all events</b></button>
+        <button type="button" data-act="import"><b>Import from file</b><span>Adds events from an exported file</span></button>
+        <button type="button" data-act="delete" class="danger"><b>Delete this event</b></button>
+      </div>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+
+    <form class="sheet-view" id="view-edit" hidden>
+      <label>Event name<input type="text" id="evName" maxlength="60" required></label>
+      <label>Date<input type="date" id="evDate" required></label>
+      <div class="sheet-actions">
+        <button type="button" class="ghost" data-act="cancel">Cancel</button>
+        <button type="submit" class="primary" id="evSubmit">Save</button>
+      </div>
+    </form>
+
+    <div class="sheet-view" id="view-delete" hidden>
+      <p id="deleteText"></p>
+      <div class="sheet-actions">
+        <button type="button" class="ghost" data-act="cancel">Keep it</button>
+        <button type="button" class="primary danger-fill" id="deleteConfirm">Delete</button>
+      </div>
+    </div>
+
+    <p class="sheet-msg" id="sheetMsg" role="status"></p>
+    <button type="button" class="sheet-close" data-act="close">Done</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

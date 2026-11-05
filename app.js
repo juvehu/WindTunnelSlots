@@ -783,6 +783,12 @@ renderAll();
 if (!state.result) allocate();
 setSaved(storageOk ? 'Saved' : '');
 
+// Updates: check whenever the app comes to the front, and offer a reload when a new version is in
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+  }).catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) $('updateBar').hidden = false; });
 }
+$('updateBtn').addEventListener('click', () => { if (saveTimer) persistNow(); location.reload(); });

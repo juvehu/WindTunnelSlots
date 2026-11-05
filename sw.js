@@ -1,6 +1,6 @@
 // Offline support: try the network first so updates arrive on the next open,
 // fall back to the saved copy when there is no connection.
-const CACHE = 'wts-v4';
+const CACHE = 'wts-v5';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 

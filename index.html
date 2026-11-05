@@ -38,7 +38,6 @@
     </div>
     <div class="pane-body">
       <div class="teams" id="teams"></div>
-      <p class="hint">Flyers are matched by name across teams (case ignored), so a person in two teams is rested correctly. Leave unused flyer fields empty.</p>
     </div>
   </section>
 
@@ -47,7 +46,6 @@
     <div class="pane-head">
       <h2>Availability</h2>
       <button class="ghost" id="clearAvail" type="button">Clear all</button>
-      <div class="sub">Tap a slot to mark it unavailable. Tap a time to toggle both slots.</div>
     </div>
     <div class="pane-body">
       <table><thead><tr><th>Time</th><th>Slot A</th><th>Slot B</th></tr></thead><tbody id="availBody"></tbody></table>
@@ -58,24 +56,34 @@
   <section class="pane out" id="pane-plan" aria-label="Plan">
     <div class="pane-head">
       <h2>Plan</h2>
-      <div class="actions">
-        <button class="share-btn" id="shareImg" type="button" hidden>Share picture</button>
-        <button class="share-btn" id="copyImg" type="button">Copy picture</button>
-        <button class="primary" id="allocate" type="button">Allocate</button>
-      </div>
-      <div class="sub">Tap an open slot to fix a team there, or set it back to Auto.</div>
+      <button class="primary" id="allocate" type="button">Allocate</button>
     </div>
     <div class="pane-body">
-      <div class="share-status" id="shareStatus" role="status"></div>
-      <div class="share-preview" id="sharePreview" hidden>
-        <p>Press and hold the picture to copy or save it.</p>
-        <img id="previewImg" alt="Plan as a picture">
-      </div>
       <table><thead><tr><th>Time</th><th>Slot A</th><th>Slot B</th></tr></thead><tbody id="outBody"></tbody></table>
+      <div class="plan-foot"><button class="ghost" id="clearPins" type="button">Clear fixes</button></div>
+    </div>
+  </section>
+
+  <!-- Summary -->
+  <section class="pane" id="pane-summary" aria-label="Summary">
+    <div class="pane-head"><h2>Summary</h2></div>
+    <div class="pane-body">
       <div class="summary" id="summary"></div>
-      <div class="plan-foot">
+      <details class="flyers-list" id="flyersBox">
+        <summary id="flyersHead">Flyers</summary>
+        <ul id="flyersList"></ul>
+      </details>
+      <div class="share-box">
         <label for="imgTitle">Picture title<input type="text" id="imgTitle" maxlength="60" placeholder="Uses the event name"></label>
-        <button class="ghost" id="clearPins" type="button">Clear fixes</button>
+        <div class="actions">
+          <button class="share-btn" id="shareImg" type="button" hidden>Share picture</button>
+          <button class="share-btn" id="copyImg" type="button">Copy picture</button>
+        </div>
+        <div class="share-status" id="shareStatus" role="status"></div>
+        <div class="share-preview" id="sharePreview" hidden>
+          <p>Press and hold the picture to copy or save it.</p>
+          <img id="previewImg" alt="Plan as a picture">
+        </div>
       </div>
     </div>
   </section>
@@ -93,6 +101,10 @@
   <button type="button" data-tab="plan" id="tab-plan">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4M4 12h4M4 19h4"/><rect x="11" y="3.5" width="9.5" height="3.5" rx="1.2"/><rect x="11" y="10.2" width="6.5" height="3.5" rx="1.2"/><rect x="11" y="17" width="8" height="3.5" rx="1.2"/></svg>
     <span>Plan</span>
+  </button>
+  <button type="button" data-tab="summary" id="tab-summary">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="3" width="15" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+    <span>Summary</span>
   </button>
 </nav>
 

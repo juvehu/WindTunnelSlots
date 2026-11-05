@@ -261,7 +261,7 @@ $('importFile').addEventListener('change', async e => {
 const teamCountSel = $('teamCount');
 for (let i = 1; i <= MAX_TEAMS; i++) teamCountSel.add(new Option(i, i));
 teamCountSel.addEventListener('change', () => { state.teamCount = +teamCountSel.value; renderTeams(); changed(); });
-function metaText(t) { const n = personsOf(t).length; return `${n} flyer${n === 1 ? '' : 's'} · ${t.minutes} min`; }
+function metaText(t) { return `${t.minutes} min`; }
 
 function renderTeams() {
   teamCountSel.value = state.teamCount;
@@ -437,42 +437,78 @@ $('clearPins').addEventListener('click', () => { state.pins = blankPins(); chang
 // =====================================================================
 // Plan view
 // =====================================================================
-function renderOut() {
+// Sessions of one team in time order (fixed slots included)
+function sessionsOf(i) {
+  const res = state.result, out = [];
+  for (let r = 0; r < ROWS; r++) for (let s = 0; s < 2; s++) {
+    if (state.unavailable[r][s]) continue;
+    const pin = activePin(r, s);
+    const ti = pin != null ? pin : (res ? res.grid[r][s] : null);
+    if (ti === i) out.push(DAY_START + r * PERIOD + s * SESSION);
+  }
+  return out;
+}
+
+function renderSummary() {
   const res = state.result;
   const sum = $('summary'); sum.innerHTML = '';
-  if (state.stale && res) { const st = document.createElement('div'); st.className = 'stale'; st.textContent = 'Inputs changed since the last run. Press Allocate to update.'; sum.appendChild(st); }
-  if (!res) { const st = document.createElement('div'); st.className = 'stale'; st.textContent = 'No plan yet. Press Allocate.'; sum.appendChild(st); }
+  const note = (text, cls) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; sum.appendChild(d); };
+  if (!res) note('No plan yet. Press Allocate on the Plan tab.', 'stale');
+  else if (state.stale) note('Inputs changed since the last run. Press Allocate on the Plan tab to update.', 'stale');
+
   if (res) {
-    const chips = document.createElement('div'); chips.className = 'chips';
-    Object.entries(res.alloc).forEach(([i, a]) => {
-      if (+i >= state.teamCount) return;
-      const t = state.teams[i];
-      const c = document.createElement('span');
-      c.className = 'chip ' + (a.got >= a.need ? 'ok' : 'short');
-      c.style.setProperty('--h', HUES[i]);
-      c.innerHTML = '<span class="dot"></span><span class="nm"></span><span class="n"></span>';
-      c.querySelector('.nm').textContent = t.name || `Team ${+i + 1}`;
-      c.querySelector('.n').textContent = `${a.got * SESSION}/${a.need * SESSION} min` + (a.maxGap ? ` · max gap ${Math.floor(a.maxGap / 60)}:${String(a.maxGap % 60).padStart(2, '0')}` : '');
-      if (a.extraGap) c.classList.add('gappy');
-      c.title = personsOf(t).join(', ');
-      chips.appendChild(c);
-    });
-    sum.appendChild(chips);
     const short = Object.entries(res.alloc).filter(([i, a]) => a.got < a.need && +i < state.teamCount);
     const m = document.createElement('div'); m.className = 'msgs';
     [...res.msgs, ...short.map(([i, a]) => `${teamName(+i)} is ${(a.need - a.got) * SESSION} min short. Free more slots or reduce requested time.`)]
       .forEach(t => { const d = document.createElement('div'); d.textContent = t; m.appendChild(d); });
     if (m.childNodes.length) sum.appendChild(m);
   }
+
+  const list = document.createElement('div'); list.className = 'teamsum';
+  for (let i = 0; i < state.teamCount; i++) {
+    const t = state.teams[i];
+    const times = sessionsOf(i);
+    const got = times.length * SESSION;
+    const row = document.createElement('div');
+    row.className = 'row' + (res && got < t.minutes ? ' short' : '');
+    row.style.setProperty('--h', HUES[i]);
+    row.innerHTML = '<span class="dot"></span><span class="nm"></span><span class="min"></span><span class="times"></span>';
+    row.querySelector('.nm').textContent = teamName(i);
+    row.querySelector('.min').textContent = `${got}/${t.minutes} min`;
+    row.querySelector('.times').textContent = times.length ? times.map(fmt).join(', ') : 'No sessions';
+    list.appendChild(row);
+  }
+  sum.appendChild(list);
+
   const availCount = state.unavailable.flat().filter(x => !x).length;
   const reqCount = state.teams.slice(0, state.teamCount).reduce((a, t) => a + t.minutes / SESSION, 0);
-  const tot = document.createElement('div'); tot.className = 'totals';
-  tot.textContent = `Requested ${reqCount * SESSION} min · Available ${availCount * SESSION} min`;
-  sum.appendChild(tot);
-  const lg = document.createElement('div'); lg.className = 'legend';
-  lg.innerHTML = '<span><i class="lg-fix"></i>FIX = fixed by you</span><span><i class="lg-free"></i>Free</span><span><i class="lg-block"></i>Unavailable</span><span>Gaps are start to start; 1:30 is the tightest the rest rule allows.</span>';
-  sum.appendChild(lg);
+  note(`Requested ${reqCount * SESSION} min · Available ${availCount * SESSION} min`, 'totals');
 
+  // unique flyers
+  const flyers = new Map();
+  for (let i = 0; i < state.teamCount; i++) {
+    const mins = sessionsOf(i).length * SESSION;
+    personsOf(state.teams[i]).forEach(p => {
+      const k = p.toLowerCase();
+      if (!flyers.has(k)) flyers.set(k, { name: p, teams: [], min: 0 });
+      const f = flyers.get(k); f.teams.push(teamName(i)); f.min += mins;
+    });
+  }
+  const sorted = [...flyers.values()].sort((a, b) => a.name.localeCompare(b.name, 'fi'));
+  $('flyersHead').textContent = `Flyers (${sorted.length})`;
+  const ul = $('flyersList'); ul.innerHTML = '';
+  sorted.forEach(f => {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="fn"></span><span class="fm"></span><span class="ft"></span>';
+    li.querySelector('.fn').textContent = f.name;
+    li.querySelector('.fm').textContent = `${f.min} min`;
+    li.querySelector('.ft').textContent = f.teams.join(', ');
+    ul.appendChild(li);
+  });
+}
+
+function renderOut() {
+  const res = state.result;
   const body = $('outBody'); body.innerHTML = '';
   for (let r = 0; r < ROWS; r++) {
     const tr = document.createElement('tr');
@@ -505,6 +541,7 @@ function renderOut() {
     }
     body.appendChild(tr);
   }
+  renderSummary();
   schedulePicture();
 }
 
@@ -513,7 +550,7 @@ function changed() { if (state.result) state.stale = true; save(); renderOut(); 
 // =====================================================================
 // Picture: share sheet / clipboard
 // =====================================================================
-const IMG = { bg: '#ffffff', fg: '#16232b', muted: '#5d6f78', line: '#d6dee2', head: '#0a7ea4', block: '#e3e8eb', blockFg: '#8a979e', free: '#9aa8af' };
+const IMG = { bg: '#ffffff', fg: '#16232b', muted: '#5d6f78', line: '#d6dee2', head: '#0a7ea4', block: '#7f8c93', blockFg: '#ffffff', free: '#9aa8af' };
 const imgTitleEl = $('imgTitle');
 imgTitleEl.addEventListener('input', () => { state.imgTitle = imgTitleEl.value; save(); schedulePicture(); });
 
@@ -527,94 +564,140 @@ function pictureTitle() {
   const ev = currentEvent();
   return state.imgTitle.trim() || `${ev.name || 'Wind tunnel schedule'} · ${fmtDate(ev.date)}`;
 }
+function wrapText(ctx, text, maxW) {
+  const words = String(text).split(/\s+/), lines = [];
+  let line = '';
+  words.forEach(w => {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width <= maxW || !line) line = test;
+    else { lines.push(line); line = w; }
+  });
+  if (line) lines.push(line);
+  return lines.map(l => fitText(ctx, l, maxW));
+}
+
+// Tall, narrow picture for phone screens: one 15-minute session per row
 function drawPicture() {
   const res = state.result;
-  let r0 = 0, r1 = ROWS - 1;
-  const closed = r => state.unavailable[r][0] && state.unavailable[r][1];
-  while (r0 < r1 && closed(r0)) r0++;
-  while (r1 > r0 && closed(r1)) r1--;
-  const teamIdx = [...Array(state.teamCount).keys()];
-  const W = 760, PAD = 32, ROWH = 30, TIMEW = 92, GAP = 8;
-  const colW = (W - PAD * 2 - TIMEW - GAP) / 2;
-  const headH = 86, tblHeadH = 30, legendRowH = 26;
-  const H = headH + tblHeadH + (r1 - r0 + 1) * ROWH + 28 + 24 + teamIdx.length * legendRowH + 46;
-  const SC = 2;
-  const cv = document.createElement('canvas'); cv.width = W * SC; cv.height = H * SC;
-  const ctx = cv.getContext('2d'); ctx.scale(SC, SC);
+  const W = 540, PAD = 26, SC = 2;
   const sans = (w, sz) => `${w} ${sz}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`;
-  const mono = sz => `500 ${sz}px ui-monospace,"SF Mono",Menlo,monospace`;
+  const mono = (w, sz) => `${w} ${sz}px ui-monospace,"SF Mono",Menlo,monospace`;
+  const meas = document.createElement('canvas').getContext('2d');
 
-  ctx.fillStyle = IMG.bg; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = IMG.head; ctx.fillRect(0, 0, W, 6);
-  ctx.fillStyle = IMG.fg; ctx.font = sans(700, 24); ctx.textBaseline = 'alphabetic';
-  ctx.fillText(fitText(ctx, pictureTitle(), W - PAD * 2), PAD, 46);
-  ctx.fillStyle = IMG.muted; ctx.font = sans(400, 12.5);
-  ctx.fillText(`15-min sessions · ${fmt(DAY_START + r0 * PERIOD)}–${fmt(DAY_START + (r1 + 1) * PERIOD)} · min. 1:30 between a flyer's sessions (start to start)`, PAD, 68);
-
-  let y = headH;
-  ctx.font = sans(600, 11); ctx.fillStyle = IMG.muted;
-  ctx.fillText('TIME', PAD, y + 18);
-  ctx.fillText('SLOT A', PAD + TIMEW, y + 18);
-  ctx.fillText('SLOT B', PAD + TIMEW + colW + GAP, y + 18);
-  y += tblHeadH;
-  ctx.strokeStyle = IMG.line; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(PAD, y - .5); ctx.lineTo(W - PAD, y - .5); ctx.stroke();
-
-  for (let r = r0; r <= r1; r++) {
-    const t = DAY_START + r * PERIOD;
-    ctx.fillStyle = IMG.fg; ctx.font = mono(13); ctx.textBaseline = 'middle';
-    ctx.fillText(fmt(t), PAD, y + ROWH / 2);
-    for (let s = 0; s < 2; s++) {
-      const x = PAD + TIMEW + s * (colW + GAP), cy = y + 3, ch = ROWH - 6;
-      if (state.unavailable[r][s]) {
-        ctx.fillStyle = IMG.block; roundRect(ctx, x, cy, colW, ch, 4); ctx.fill();
-        ctx.fillStyle = IMG.blockFg; ctx.font = sans(500, 10.5);
-        ctx.textAlign = 'center'; ctx.fillText('UNAVAILABLE', x + colW / 2, y + ROWH / 2); ctx.textAlign = 'left';
-        continue;
-      }
-      const pin = activePin(r, s);
-      const ti = pin != null ? pin : (res ? res.grid[r][s] : null);
-      if (ti != null && ti < state.teamCount) {
-        const h = HUES[ti];
-        ctx.fillStyle = `hsl(${h} 62% 84%)`; roundRect(ctx, x, cy, colW, ch, 4); ctx.fill();
-        ctx.fillStyle = `hsl(${h} 55% 42%)`; ctx.fillRect(x, cy, 4, ch);
-        ctx.fillStyle = IMG.fg; ctx.font = sans(pin != null ? 600 : 500, 13);
-        ctx.fillText(fitText(ctx, `${fmt(t + s * SESSION)}  ${teamName(ti)}`, colW - (pin != null ? 54 : 18)), x + 11, y + ROWH / 2);
-        if (pin != null) {
-          ctx.fillStyle = `hsl(${h} 55% 42%)`; roundRect(ctx, x + colW - 38, y + ROWH / 2 - 8, 30, 16, 3); ctx.fill();
-          ctx.fillStyle = '#fff'; ctx.font = mono(9.5); ctx.textAlign = 'center';
-          ctx.fillText('FIX', x + colW - 23, y + ROWH / 2 + .5); ctx.textAlign = 'left';
-        }
-      } else {
-        ctx.setLineDash([4, 3]); ctx.strokeStyle = IMG.line; roundRect(ctx, x + .5, cy + .5, colW - 1, ch - 1, 4); ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = IMG.free; ctx.font = sans(400, 11.5); ctx.textAlign = 'center';
-        ctx.fillText('Free', x + colW / 2, y + ROWH / 2); ctx.textAlign = 'left';
-      }
+  // rows: sessions in time order, closed runs merged, closed start/end trimmed
+  const N = ROWS * 2, items = [];
+  const startOf = k => DAY_START + k * SESSION;
+  const closedAt = k => state.unavailable[Math.floor(k / 2)][k % 2];
+  let k0 = 0, k1 = N - 1;
+  while (k0 < k1 && closedAt(k0)) k0++;
+  while (k1 > k0 && closedAt(k1)) k1--;
+  for (let k = k0; k <= k1; k++) {
+    if (closedAt(k)) {
+      let e = k; while (e + 1 <= k1 && closedAt(e + 1)) e++;
+      items.push({ type: 'closed', from: startOf(k), to: startOf(e + 1) });
+      k = e; continue;
     }
-    y += ROWH;
-    ctx.strokeStyle = IMG.line; ctx.beginPath(); ctx.moveTo(PAD, y - .5); ctx.lineTo(W - PAD, y - .5); ctx.stroke();
+    const r = Math.floor(k / 2), s = k % 2;
+    const pin = activePin(r, s);
+    const ti = pin != null ? pin : (res ? res.grid[r][s] : null);
+    items.push(ti != null && ti < state.teamCount ? { type: 'team', t: startOf(k), ti, fixed: pin != null } : { type: 'free', t: startOf(k) });
   }
 
-  y += 28; ctx.textBaseline = 'alphabetic';
-  ctx.font = sans(600, 11); ctx.fillStyle = IMG.muted; ctx.fillText('TEAMS', PAD, y); y += 12;
-  teamIdx.forEach(i => {
-    const t = state.teams[i], a = res && res.alloc[i];
-    const cy = y + legendRowH / 2;
-    ctx.fillStyle = `hsl(${HUES[i]} 62% 76%)`; roundRect(ctx, PAD, cy - 6, 12, 12, 3); ctx.fill();
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = IMG.fg; ctx.font = sans(600, 13);
-    ctx.fillText(fitText(ctx, teamName(i), 210), PAD + 22, cy);
-    ctx.fillStyle = IMG.muted; ctx.font = sans(400, 12.5);
-    ctx.fillText(fitText(ctx, personsOf(t).join(', ') || '—', 300), PAD + 245, cy);
-    ctx.font = mono(12); ctx.textAlign = 'right';
-    ctx.fillText(a ? `${a.got * SESSION}/${a.need * SESSION} min` : `${t.minutes} min`, W - PAD, cy); ctx.textAlign = 'left';
-    y += legendRowH;
+  // title and team blocks may wrap: measure first
+  meas.font = sans(700, 26);
+  const titleLines = wrapText(meas, pictureTitle(), W - PAD * 2).slice(0, 3);
+  const teamBlocks = [...Array(state.teamCount).keys()].map(i => {
+    meas.font = sans(400, 15);
+    const fl = wrapText(meas, personsOf(state.teams[i]).join(', ') || '—', W - PAD * 2 - 24);
+    meas.font = mono(500, 14);
+    const times = sessionsOf(i);
+    const tl = wrapText(meas, times.length ? times.map(fmt).join('  ') : 'No sessions', W - PAD * 2 - 24);
+    return { i, fl, tl, got: times.length * SESSION, h: 30 + fl.length * 20 + tl.length * 20 + 14 };
   });
+
+  const ROWH = 46, CLOSEDH = 40, headH = 30 + titleLines.length * 32 + 34;
+  const listH = items.reduce((a, it) => a + (it.type === 'closed' ? CLOSEDH : ROWH), 0);
+  const teamsH = 46 + teamBlocks.reduce((a, b) => a + b.h, 0);
+  const H = headH + 14 + listH + 24 + teamsH + 40;
+
+  const cv = document.createElement('canvas'); cv.width = W * SC; cv.height = H * SC;
+  const ctx = cv.getContext('2d'); ctx.scale(SC, SC);
+  ctx.fillStyle = IMG.bg; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = IMG.head; ctx.fillRect(0, 0, W, 8);
+
+  let y = 30;
+  ctx.textBaseline = 'alphabetic'; ctx.fillStyle = IMG.fg; ctx.font = sans(700, 26);
+  titleLines.forEach(l => { y += 32; ctx.fillText(l, PAD, y - 6); });
+  ctx.fillStyle = IMG.muted; ctx.font = sans(400, 14);
+  ctx.fillText('15-min sessions · min. 1:30 between a flyer’s sessions', PAD, y + 18);
+  y = headH + 14;
+
+  const TIMEW = 86, X = PAD + TIMEW, BW = W - PAD - X;
+  ctx.textBaseline = 'middle';
+  items.forEach((it, n) => {
+    const h = it.type === 'closed' ? CLOSEDH : ROWH;
+    const cy = y + h / 2;
+    const t = it.type === 'closed' ? it.from : it.t;
+    // heavier divider on the hour
+    if (n > 0) {
+      ctx.strokeStyle = t % 60 === 0 ? '#b9c5cb' : IMG.line; ctx.lineWidth = t % 60 === 0 ? 1.5 : 1;
+      ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+    }
+    if (it.type === 'closed') {
+      ctx.fillStyle = IMG.block; roundRect(ctx, PAD, y + 5, W - PAD * 2, h - 10, 6); ctx.fill();
+      ctx.fillStyle = IMG.blockFg; ctx.font = sans(700, 15);
+      ctx.fillText(`${fmt(it.from)}–${fmt(it.to)}   Closed`, PAD + 12, cy);
+    } else {
+      ctx.fillStyle = IMG.fg; ctx.font = mono(600, 19);
+      ctx.fillText(fmt(t), PAD, cy);
+      if (it.type === 'team') {
+        const hue = HUES[it.ti];
+        ctx.fillStyle = `hsl(${hue} 62% 84%)`; roundRect(ctx, X, y + 5, BW, h - 10, 7); ctx.fill();
+        ctx.fillStyle = `hsl(${hue} 55% 40%)`; ctx.fillRect(X, y + 5, 6, h - 10);
+        ctx.fillStyle = IMG.fg; ctx.font = sans(it.fixed ? 700 : 600, 19);
+        ctx.fillText(fitText(ctx, teamName(it.ti), BW - (it.fixed ? 70 : 26)), X + 16, cy + 1);
+        if (it.fixed) {
+          ctx.fillStyle = `hsl(${hue} 55% 40%)`; roundRect(ctx, X + BW - 50, cy - 10, 40, 20, 4); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.font = mono(700, 11); ctx.textAlign = 'center';
+          ctx.fillText('FIX', X + BW - 30, cy + 1); ctx.textAlign = 'left';
+        }
+      } else {
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = '#c3ccd1'; ctx.lineWidth = 1;
+        roundRect(ctx, X + .5, y + 5.5, BW - 1, h - 11, 7); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = IMG.free; ctx.font = sans(500, 16);
+        ctx.fillText('Free', X + 16, cy + 1);
+      }
+    }
+    y += h;
+  });
+
+  // team list
+  y += 24;
+  ctx.strokeStyle = IMG.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = IMG.free; ctx.font = sans(400, 11);
+  ctx.fillStyle = IMG.muted; ctx.font = sans(700, 13); ctx.fillText('TEAMS', PAD, y + 30);
+  y += 46;
+  teamBlocks.forEach(b => {
+    const t = state.teams[b.i];
+    ctx.fillStyle = `hsl(${HUES[b.i]} 62% 72%)`; roundRect(ctx, PAD, y + 7, 14, 14, 3); ctx.fill();
+    ctx.fillStyle = IMG.fg; ctx.font = sans(700, 18);
+    ctx.fillText(fitText(ctx, teamName(b.i), W - PAD * 2 - 140), PAD + 24, y + 20);
+    ctx.font = mono(600, 15); ctx.textAlign = 'right';
+    ctx.fillStyle = res && b.got < t.minutes ? '#b5651d' : IMG.fg;
+    ctx.fillText(`${b.got}/${t.minutes} min`, W - PAD, y + 20); ctx.textAlign = 'left';
+    let yy = y + 30;
+    ctx.fillStyle = IMG.muted; ctx.font = sans(400, 15);
+    b.fl.forEach(l => { yy += 20; ctx.fillText(l, PAD + 24, yy - 4); });
+    ctx.fillStyle = IMG.fg; ctx.font = mono(500, 14);
+    b.tl.forEach(l => { yy += 20; ctx.fillText(l, PAD + 24, yy - 4); });
+    y += b.h;
+  });
+
+  ctx.fillStyle = IMG.free; ctx.font = sans(400, 12);
   ctx.fillText(`Generated ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`, PAD, H - 18);
   return cv;
 }
+
 const toBlob = cv => new Promise(res => cv.toBlob(res, 'image/png'));
 
 // iPhone only opens the share sheet straight from a tap, so the picture is prepared in advance
@@ -683,7 +766,7 @@ function renderAll() {
   renderTeams(); renderAvail(); renderOut();
 }
 state = currentEvent().plan;
-setTab(['teams', 'avail', 'plan'].includes(ui.tab) ? ui.tab : 'teams');
+setTab(['teams', 'avail', 'plan', 'summary'].includes(ui.tab) ? ui.tab : 'teams');
 renderAll();
 if (!state.result) allocate();
 setSaved(storageOk ? 'Saved' : '');

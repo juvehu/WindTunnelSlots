@@ -607,6 +607,9 @@ function drawPicture() {
     });
     items.push({ type: 'slot', t: DAY_START + r * PERIOD, cells });
   }
+  // drop empty and closed rows after the last booked slot
+  const booked = it => it.type === 'slot' && it.cells.some(c => c.type === 'team');
+  if (items.some(booked)) while (items.length && !booked(items[items.length - 1])) items.pop();
 
   meas.font = sans(700, 26);
   const titleLines = wrapText(meas, pictureTitle(), W - PAD * 2).slice(0, 3);

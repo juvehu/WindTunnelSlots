@@ -449,6 +449,9 @@ function sessionsOf(i) {
   return out;
 }
 
+// Start of the 30-min slot for each session (two teams interleave within a slot)
+const slotTimesOf = i => sessionsOf(i).map(m => m - ((m - DAY_START) % PERIOD));
+
 function renderSummary() {
   const res = state.result;
   const sum = $('summary'); sum.innerHTML = '';
@@ -475,7 +478,7 @@ function renderSummary() {
     row.innerHTML = '<span class="dot"></span><span class="nm"></span><span class="min"></span><span class="times"></span>';
     row.querySelector('.nm').textContent = teamName(i);
     row.querySelector('.min').textContent = `${got}/${t.minutes} min`;
-    row.querySelector('.times').textContent = times.length ? times.map(fmt).join(', ') : 'No sessions';
+    row.querySelector('.times').textContent = times.length ? slotTimesOf(i).map(fmt).join(', ') : 'No sessions';
     list.appendChild(row);
   }
   sum.appendChild(list);
@@ -576,49 +579,50 @@ function wrapText(ctx, text, maxW) {
   return lines.map(l => fitText(ctx, l, maxW));
 }
 
-// Tall, narrow picture for phone screens: one 15-minute session per row
+// Tall, narrow picture for phone screens: one row per 30-minute slot, both teams side by side
 function drawPicture() {
   const res = state.result;
-  const W = 540, PAD = 26, SC = 2;
+  const W = 540, PAD = 24, SC = 2;
   const sans = (w, sz) => `${w} ${sz}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`;
   const mono = (w, sz) => `${w} ${sz}px ui-monospace,"SF Mono",Menlo,monospace`;
   const meas = document.createElement('canvas').getContext('2d');
 
-  // rows: sessions in time order, closed runs merged, closed start/end trimmed
-  const N = ROWS * 2, items = [];
-  const startOf = k => DAY_START + k * SESSION;
-  const closedAt = k => state.unavailable[Math.floor(k / 2)][k % 2];
-  let k0 = 0, k1 = N - 1;
-  while (k0 < k1 && closedAt(k0)) k0++;
-  while (k1 > k0 && closedAt(k1)) k1--;
-  for (let k = k0; k <= k1; k++) {
-    if (closedAt(k)) {
-      let e = k; while (e + 1 <= k1 && closedAt(e + 1)) e++;
-      items.push({ type: 'closed', from: startOf(k), to: startOf(e + 1) });
-      k = e; continue;
+  // rows: 30-min periods, fully closed runs merged, closed start/end trimmed
+  const closed = r => state.unavailable[r][0] && state.unavailable[r][1];
+  let r0 = 0, r1 = ROWS - 1;
+  while (r0 < r1 && closed(r0)) r0++;
+  while (r1 > r0 && closed(r1)) r1--;
+  const items = [];
+  for (let r = r0; r <= r1; r++) {
+    if (closed(r)) {
+      let e = r; while (e + 1 <= r1 && closed(e + 1)) e++;
+      items.push({ type: 'closed', from: DAY_START + r * PERIOD, to: DAY_START + (e + 1) * PERIOD });
+      r = e; continue;
     }
-    const r = Math.floor(k / 2), s = k % 2;
-    const pin = activePin(r, s);
-    const ti = pin != null ? pin : (res ? res.grid[r][s] : null);
-    items.push(ti != null && ti < state.teamCount ? { type: 'team', t: startOf(k), ti, fixed: pin != null } : { type: 'free', t: startOf(k) });
+    const cells = [0, 1].map(s => {
+      if (state.unavailable[r][s]) return { type: 'off' };
+      const pin = activePin(r, s);
+      const ti = pin != null ? pin : (res ? res.grid[r][s] : null);
+      return ti != null && ti < state.teamCount ? { type: 'team', ti, fixed: pin != null } : { type: 'free' };
+    });
+    items.push({ type: 'slot', t: DAY_START + r * PERIOD, cells });
   }
 
-  // title and team blocks may wrap: measure first
   meas.font = sans(700, 26);
   const titleLines = wrapText(meas, pictureTitle(), W - PAD * 2).slice(0, 3);
   const teamBlocks = [...Array(state.teamCount).keys()].map(i => {
     meas.font = sans(400, 15);
     const fl = wrapText(meas, personsOf(state.teams[i]).join(', ') || '—', W - PAD * 2 - 24);
     meas.font = mono(500, 14);
-    const times = sessionsOf(i);
+    const times = slotTimesOf(i);
     const tl = wrapText(meas, times.length ? times.map(fmt).join('  ') : 'No sessions', W - PAD * 2 - 24);
     return { i, fl, tl, got: times.length * SESSION, h: 30 + fl.length * 20 + tl.length * 20 + 14 };
   });
 
-  const ROWH = 46, CLOSEDH = 40, headH = 30 + titleLines.length * 32 + 34;
+  const ROWH = 46, CLOSEDH = 36, headH = 30 + titleLines.length * 32 + 34;
   const listH = items.reduce((a, it) => a + (it.type === 'closed' ? CLOSEDH : ROWH), 0);
   const teamsH = 46 + teamBlocks.reduce((a, b) => a + b.h, 0);
-  const H = headH + 14 + listH + 24 + teamsH + 40;
+  const H = headH + 12 + listH + 22 + teamsH + 38;
 
   const cv = document.createElement('canvas'); cv.width = W * SC; cv.height = H * SC;
   const ctx = cv.getContext('2d'); ctx.scale(SC, SC);
@@ -629,50 +633,55 @@ function drawPicture() {
   ctx.textBaseline = 'alphabetic'; ctx.fillStyle = IMG.fg; ctx.font = sans(700, 26);
   titleLines.forEach(l => { y += 32; ctx.fillText(l, PAD, y - 6); });
   ctx.fillStyle = IMG.muted; ctx.font = sans(400, 14);
-  ctx.fillText('15-min sessions · min. 1:30 between a flyer’s sessions', PAD, y + 18);
-  y = headH + 14;
+  ctx.fillText('30-min slots, two teams interleaved · min. 1:30 rest per flyer', PAD, y + 18);
+  y = headH + 12;
 
-  const TIMEW = 86, X = PAD + TIMEW, BW = W - PAD - X;
+  const TIMEW = 76, X = PAD + TIMEW, GAP = 6, CW = (W - PAD - X - GAP) / 2;
   ctx.textBaseline = 'middle';
   items.forEach((it, n) => {
     const h = it.type === 'closed' ? CLOSEDH : ROWH;
     const cy = y + h / 2;
     const t = it.type === 'closed' ? it.from : it.t;
-    // heavier divider on the hour
     if (n > 0) {
       ctx.strokeStyle = t % 60 === 0 ? '#b9c5cb' : IMG.line; ctx.lineWidth = t % 60 === 0 ? 1.5 : 1;
       ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
     }
     if (it.type === 'closed') {
-      ctx.fillStyle = IMG.block; roundRect(ctx, PAD, y + 5, W - PAD * 2, h - 10, 6); ctx.fill();
+      ctx.fillStyle = IMG.block; roundRect(ctx, PAD, y + 4, W - PAD * 2, h - 8, 6); ctx.fill();
       ctx.fillStyle = IMG.blockFg; ctx.font = sans(700, 15);
       ctx.fillText(`${fmt(it.from)}–${fmt(it.to)}   Closed`, PAD + 12, cy);
-    } else {
-      ctx.fillStyle = IMG.fg; ctx.font = mono(600, 19);
-      ctx.fillText(fmt(t), PAD, cy);
-      if (it.type === 'team') {
-        const hue = HUES[it.ti];
-        ctx.fillStyle = `hsl(${hue} 62% 84%)`; roundRect(ctx, X, y + 5, BW, h - 10, 7); ctx.fill();
-        ctx.fillStyle = `hsl(${hue} 55% 40%)`; ctx.fillRect(X, y + 5, 6, h - 10);
-        ctx.fillStyle = IMG.fg; ctx.font = sans(it.fixed ? 700 : 600, 19);
-        ctx.fillText(fitText(ctx, teamName(it.ti), BW - (it.fixed ? 70 : 26)), X + 16, cy + 1);
-        if (it.fixed) {
-          ctx.fillStyle = `hsl(${hue} 55% 40%)`; roundRect(ctx, X + BW - 50, cy - 10, 40, 20, 4); ctx.fill();
-          ctx.fillStyle = '#fff'; ctx.font = mono(700, 11); ctx.textAlign = 'center';
-          ctx.fillText('FIX', X + BW - 30, cy + 1); ctx.textAlign = 'left';
+      y += h; return;
+    }
+    ctx.fillStyle = IMG.fg; ctx.font = mono(600, 19);
+    ctx.fillText(fmt(t), PAD, cy);
+    it.cells.forEach((c, s) => {
+      const x = X + s * (CW + GAP), by = y + 5, bh = h - 10;
+      if (c.type === 'team') {
+        const hue = HUES[c.ti];
+        ctx.fillStyle = `hsl(${hue} 62% 84%)`; roundRect(ctx, x, by, CW, bh, 7); ctx.fill();
+        ctx.fillStyle = `hsl(${hue} 55% 40%)`; ctx.fillRect(x, by, 5, bh);
+        ctx.fillStyle = IMG.fg; ctx.font = sans(c.fixed ? 700 : 600, 16);
+        ctx.fillText(fitText(ctx, teamName(c.ti), CW - (c.fixed ? 52 : 20)), x + 12, cy + 1);
+        if (c.fixed) {
+          ctx.fillStyle = `hsl(${hue} 55% 40%)`; roundRect(ctx, x + CW - 40, cy - 9, 32, 18, 4); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.font = mono(700, 10); ctx.textAlign = 'center';
+          ctx.fillText('FIX', x + CW - 24, cy + 1); ctx.textAlign = 'left';
         }
+      } else if (c.type === 'off') {
+        ctx.fillStyle = IMG.block; roundRect(ctx, x, by, CW, bh, 7); ctx.fill();
+        ctx.fillStyle = IMG.blockFg; ctx.font = sans(700, 13);
+        ctx.fillText('Closed', x + 12, cy + 1);
       } else {
         ctx.setLineDash([5, 4]); ctx.strokeStyle = '#c3ccd1'; ctx.lineWidth = 1;
-        roundRect(ctx, X + .5, y + 5.5, BW - 1, h - 11, 7); ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = IMG.free; ctx.font = sans(500, 16);
-        ctx.fillText('Free', X + 16, cy + 1);
+        roundRect(ctx, x + .5, by + .5, CW - 1, bh - 1, 7); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = IMG.free; ctx.font = sans(500, 15);
+        ctx.fillText('Free', x + 12, cy + 1);
       }
-    }
+    });
     y += h;
   });
 
-  // team list
-  y += 24;
+  y += 22;
   ctx.strokeStyle = IMG.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = IMG.muted; ctx.font = sans(700, 13); ctx.fillText('TEAMS', PAD, y + 30);
